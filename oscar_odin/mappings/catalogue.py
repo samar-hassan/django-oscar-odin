@@ -395,7 +395,7 @@ def products_to_model(
 ) -> Tuple[List[ProductModel], Dict]:
     context = ProductModelMapperContext(ProductModel)
 
-    result = product_mapper.apply(products, context=context)
+    result = product_mapper.apply(products, context=context, allow_subclass=True)
 
     try:
         return (list(result), context)

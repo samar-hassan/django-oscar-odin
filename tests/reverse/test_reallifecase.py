@@ -139,9 +139,128 @@ class CSVProductMapping(odin.Mapping):
         return True
 
 
+
+
+class AutomagicProductResource(odin.Resource):
+    SKU = odin.StringField()
+    TITLE = odin.StringField(null=True)
+    CATEGORY_IDS = odin.StringField(null=True)
+    PRICE = odin.StringField(null=True)
+    SPECIAL_PRICE = odin.StringField(null=True)
+    IMAGE_URL = odin.StringField()
+    UNITS = odin.StringField(null=True)
+    UNIT_SCALE = odin.StringField(null=True)
+    UNIT_SIZE = odin.StringField(null=True)
+    UNITS_PER_CASE = odin.StringField(null=True)
+    STOCK = odin.StringField()
+    MAX_QTY = odin.StringField()
+    MIN_QTY = odin.StringField(null=True)
+    SHORT_DESCRIPTION = odin.StringField(null=True)
+    DESCRIPTION = odin.StringField(null=True)
+    BRAND = odin.StringField(null=True)
+    BARCODES = odin.StringField()
+    PROMOTED = odin.StringField()
+    BADGE_ONE = odin.StringField(null=True)
+    KEYWORDS = odin.StringField(null=True)
+
+
+class MyProductResource(ProductResource):
+    long_description = odin.StringField(null=True)
+
+    class Meta:
+        namespace = "oscar.catalogue"
+
+class AutomagicProductMapping(odin.Mapping):
+    from_obj = AutomagicProductResource
+    to_obj = MyProductResource
+
+    mappings = (
+        odin.define(from_field="SKU", to_field="upc"),
+        odin.define(from_field="SHORT_DESCRIPTION", to_field="description"),
+        # odin.define(from_field="DESCRIPTION", to_field="long_description"),
+    )
+
+    @odin.map_field(from_field=["SKU", "TITLE"])
+    def title(self, upc, title):
+        return title if title else upc
+
+    @odin.map_field(from_field=["SKU", "TITLE"])
+    def slug(self, upc, title):
+        return slugify(title) if title else slugify(upc)
+
+    @odin.assign_field
+    def product_class(self):
+        return ProductClassResource(slug="default")
+
+    @odin.assign_field(to_field="structure")
+    def structure(self):
+        return "standalone"
+
+    @odin.map_field(
+        from_field=[
+            "UNITS", "UNIT_SCALE", "UNIT_SIZE", "UNITS_PER_CASE", "MAX_QTY", "MIN_QTY",
+            "BRAND", "BARCODES", "PROMOTED", "BADGE_ONE", "KEYWORDS",
+        ]
+    )
+    def attributes(
+        self, units, unit_scale, unit_size, units_per_case, max_qty,
+        min_qty, brand, barcodes, promoted, badge_one, keywords
+    ):
+        return {
+            "stock_id": "",
+            "units": units,
+            "unit_scale": unit_scale,
+            "unit_size": unit_size,
+            "units_per_case": units_per_case,
+            "max_qty": int(D(max_qty)) if max_qty else None,
+            "min_qty": int(D(min_qty)) if min_qty else None,
+            "brand": brand,
+            "barcodes": barcodes,
+            "promoted": False if promoted == "0" else True,
+            "badge_one": badge_one,
+            "keywords": keywords
+        }
+
+AUTOMAGIC_ATTRIBUTES = {
+    "stock_id": ProductAttribute.TEXT,
+    "units": ProductAttribute.TEXT,
+    "unit_scale": ProductAttribute.TEXT,
+    "unit_size": ProductAttribute.TEXT,
+    "units_per_case": ProductAttribute.TEXT,
+    "max_qty": ProductAttribute.INTEGER,
+    "min_qty": ProductAttribute.INTEGER,
+    "brand": ProductAttribute.TEXT,
+    "barcodes": ProductAttribute.TEXT,
+    "promoted": ProductAttribute.BOOLEAN,
+    "badge_one": ProductAttribute.TEXT,
+    "keywords": ProductAttribute.TEXT,
+}
+
 class RealLifeTest(TestCase):
     @responses.activate
     def test_mapping(self):
+        product_class, _ = ProductClass.objects.get_or_create(
+            name="Default", track_stock=True
+        )
+        for attr_code, attr_type in AUTOMAGIC_ATTRIBUTES.items():
+            product_class.attributes.get_or_create(
+                code=attr_code,
+                defaults={"name": attr_code.capitalize(), "type": attr_type},
+            )
+
+        products = None
+        with open("products.csv", "r", encoding="utf-8") as file_obj:
+            automagic_product_resources = csv_codec.reader(
+                file_obj,
+                AutomagicProductResource,
+                includes_header=True,
+            )
+            product_resources = AutomagicProductMapping.apply(
+                automagic_product_resources
+            )
+            products, _ = products_to_db(product_resources)
+        print(products)
+        return
         responses.add(
             responses.GET,
             "https://picsum.photos/200/300",
